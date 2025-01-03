@@ -12,3 +12,4 @@ python-dateutil
 lxml
 beautifulsoup4
 pandas
+gunicorn
