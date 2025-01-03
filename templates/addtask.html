@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+    <style>
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      table,
+      th,
+      td {
+        border: 1px solid black;
+      }
+      th,
+      td {
+        padding: 8px;
+        text-align: center;
+      }
+      /* Overlay styles */
+      #overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        color: white;
+        font-size: 20px;
+        z-index: 9999;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Dashboard</h2>
+    <a href="">Logout</a>
+
+    <h3>Scheduled Tasks</h3>
+    <table id="taskTable">
+      <thead>
+        <tr>
+          <th>Application No</th>
+          <th>Date of Birth</th>
+          <th>Name</th>
+          <th>COV</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Dynamic rows will be added here -->
+      </tbody>
+    </table>
+
+    <button onclick="addRow()">Add Row</button>
+    <button onclick="fetchData()">Fetch Data</button>
+
+    <h3>Slot Date</h3>
+    <label for="slotdate">Enter Slot Date: </label>
+    <input type="date" id="slotdate" name="slotdate" />
+    <button onclick="fetchSlotDate()">Fetch Date</button>
+
+    <h3>Add Task</h3>
+    <form id="addTaskForm" method="POST">
+      <button type="button" onclick="submitTasks()">Add Task</button>
+    </form>
+
+    <div id="overlay">Server is fetching data, please wait...</div>
+
+    <script>
+      let rowIndex = 0;
+
+      function addRow() {
+        const table = document
+          .getElementById("taskTable")
+          .getElementsByTagName("tbody")[0];
+        const newRow = table.insertRow();
+        rowIndex++;
+
+        newRow.innerHTML = `
+        <td><input type="text" name="applno" id="applno_${rowIndex}" required></td>
+        <td><input type="date" name="dob" id="dob_${rowIndex}" required></td>
+        <td><input type="text" id="name_${rowIndex}" disabled></td>
+        <td><input type="text" id="cov_${rowIndex}" disabled></td>
+      `;
+      }
+
+      function formatDate(dateString) {
+        const [year, month, day] = dateString.split("-");
+        return `${day}-${month}-${year}`;
+      }
+
+      function fetchData() {
+        const rows = document
+          .getElementById("taskTable")
+          .getElementsByTagName("tbody")[0].rows;
+        let data = [];
+
+        for (let row of rows) {
+          const applno = row.cells[0].children[0].value;
+          const dob = row.cells[1].children[0].value;
+
+          if (applno && dob) {
+            data.push({ applno, dob: formatDate(dob) });
+          }
+        }
+
+        const overlay = document.getElementById("overlay");
+        overlay.style.display = "flex";
+
+        const timer = setTimeout(() => {
+          overlay.innerText = "Request timed out. Please try again.";
+        }, rows.length * 1000000);
+
+        fetch("/fetch_task_data", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data),
+        })
+          .then((response) => {
+            clearTimeout(timer);
+            if (response.ok) {
+              return response.json();
+            } else {
+              throw new Error("Failed to fetch data.");
+            }
+          })
+          .then((result) => {
+            for (let i = 0; i < result.length; i++) {
+              document.getElementById(`name_${i + 1}`).value = result[i].name;
+              document.getElementById(`cov_${i + 1}`).value = result[i].cov;
+            }
+            overlay.style.display = "none";
+            alert("Data fetched successfully!");
+          })
+          .catch((error) => {
+            overlay.innerText = "Failed to fetch data.";
+            setTimeout(() => (overlay.style.display = "none"), 2000);
+          });
+      }
+      function fetchSlotDate() {
+        const overlay = document.getElementById("overlay");
+        overlay.style.display = "flex";
+        fetch("/fetch_slot_checkdate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        })
+          .then((response) => response.json())
+          .then((result) => {
+            overlay.style.display = "none";
+            if (result.slotdate == "") {
+              alert("date not found");
+            }
+            // Populate the slot date field with the server response
+
+            document.getElementById("slotdate").value = result.slotdate;
+          });
+      }
+      function submitTasks() {
+        const rows = document
+          .getElementById("taskTable")
+          .getElementsByTagName("tbody")[0].rows;
+        let tasks = [];
+        const slotdate = document.getElementById("slotdate").value;
+
+        for (let row of rows) {
+          const applno = row.cells[0].children[0].value;
+          const dob = row.cells[1].children[0].value;
+          const name = row.cells[2].children[0].value;
+          const cov = row.cells[3].children[0].value;
+
+          if (applno && dob && name && cov && slotdate) {
+            tasks.push({ applno, dob, name, cov, slotdate });
+          }
+        }
+
+        // Send the tasks to the server
+        fetch("/schedule", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ tasks }),
+        })
+          .then((response) => response.json())
+          .then((result) => {
+            alert(result.message);
+            //location.reload(); // Reload the page after scheduling
+          });
+      }
+    </script>
+  </body>
+</html>
