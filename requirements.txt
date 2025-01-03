@@ -11,3 +11,4 @@ anticaptchaofficial
 python-dateutil
 lxml
 beautifulsoup4
+pandas
