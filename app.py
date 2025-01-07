@@ -3,9 +3,11 @@ from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import subprocess
+from flask_login import login_required, current_user
 import threading
 import os
 import json
+from flask import flash
 import requests
 from lxml.html import soupparser
 import re
@@ -29,7 +31,24 @@ from os import listdir
 from string import whitespace
 from dateutil import parser
 from datetime import datetime
-
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime
+import subprocess
+import threading
+import traceback
+import subprocess
+import logging
+import os
+from datetime import datetime
+import subprocess
+import logging
+import os
+from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import os
+from flask import Flask, send_from_directory, abort
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tasks.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -48,9 +67,12 @@ class ScheduledTask(db.Model):
     output = db.Column(db.Text, nullable=True)
     log_file = db.Column(db.String(100), nullable=True)
     cov = db.Column(db.String(50), nullable=True)
-    slotdate = db.Column(db.String(10), nullable=True)
-    checkdate = db.Column(db.String(10), nullable=True)
-    cov =db.Column(db.String(50),nullable=False)
+    slotdate = db.Column(db.String(10), nullable=False)
+class SchedulingSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    scheduling_time = db.Column(db.Time, nullable=False, default="08:55:00")
+
+    
 with app.app_context():
     db.create_all()
 active_processes = {}
@@ -218,7 +240,7 @@ def fetch_task_data():
                                     applicationid = latest_application['APPLICATION NO.']
 
                             except Exception as e:
-                                import traceback
+                                
 
                                 traceback.print_exc()
                                 response_data.append({"applno": applicationid, "error": error_message})
@@ -228,10 +250,7 @@ def fetch_task_data():
                         return jsonify(response_data)
                             
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime
-import subprocess
-import threading
+
 
 # Assuming `scheduler` has been initialized as an instance of BackgroundScheduler
 scheduler = BackgroundScheduler()
@@ -241,10 +260,16 @@ scheduler.start()
 def schedule_task():
     data = request.json
     tasks = data.get('tasks')
-
+    settings = SchedulingSettings.query.first()
+    
+    scheduling_time = settings.scheduling_time
     if not tasks:
         return jsonify({'error': 'No tasks provided'}), 400
-    task_time = datetime.strptime(datetime.now().strftime("%Y-%m-%d") + " 18:32:00", "%Y-%m-%d %H:%M:%S") 
+    task_time = datetime.strptime(
+    datetime.now().strftime("%Y-%m-%d") + " " + scheduling_time.strftime("%H:%M:%S"),
+    "%Y-%m-%d %H:%M:%S"
+)
+
     for task in tasks:
         new_task = ScheduledTask(
     applications=task['applno'],
@@ -253,7 +278,7 @@ def schedule_task():
     cov=str(task['cov']).replace(" ", ""),
     scheduled_date=datetime.now().strftime("%Y-%m-%d"),
     status="Pending",
-    slotdate=datetime.strptime(task['slotdate'], "%Y-%m-%d").strftime("%d/%m/%Y")
+    slotdate=datetime.strptime(task['slotdate'], "%Y-%m-%d").strftime("%d-%m-%Y")
 )
         db.session.add(new_task)
         db.session.commit()
@@ -268,20 +293,12 @@ def schedule_task():
     return jsonify({'message': 'Tasks scheduled successfully'}), 201
 
 
-import subprocess
-import logging
-import os
-from datetime import datetime
 
 # Ensure the 'logs' directory exists
 os.makedirs('logs', exist_ok=True)
 
 os.makedirs('logs', exist_ok=True)
 
-import subprocess
-import logging
-import os
-from datetime import datetime
 
 # Ensure the 'logs' directory exists
 os.makedirs('logs', exist_ok=True)
@@ -349,9 +366,7 @@ def run_game_script(task_id):
 
 def fetch_slot_checkdate():
     slots = ['SLOT1 (08.00-08.10)', 'SLOT2 (08.11-08.20)', 'SLOT3 (08.21-08.30)', 'SLOT4 (08.31-08.40)']
-    import requests
-    from bs4 import BeautifulSoup
-    import pandas as pd
+    
     # Simulate fetching slotdate and checkdate
     s = requests.Session()
     burp0_url = "https://sarathi.parivahan.gov.in:443/slots/dlSlotEnquiry.do?id=sardlenq"
@@ -449,7 +464,7 @@ def view_tasks():
     
     # Return tasks in a simple HTML table view
     return render_template('view_tasks.html', tasks=tasks)
-@app.route('/kill_task/<int:task_id>', methods=['GET'])
+@app.route('/kill_task/<task_id>', methods=['GET'])
 def kill_task(task_id):
     global active_processes
     process = active_processes.get(task_id)
@@ -472,8 +487,7 @@ def kill_task(task_id):
         active_processes.pop(task_id, None)
 
     return jsonify({'message': f'Task ID {task_id} terminated successfully'}), 200
-import os
-from flask import Flask, send_from_directory, abort
+
 @app.route('/pdf/<applno>')
 def send_pdf(applno):
     # Directory where PDF files are stored
@@ -488,7 +502,78 @@ def send_pdf(applno):
     
     # Serve the file
     return send_from_directory(pdf_directory, pdf_file, as_attachment=True)
-
+@app.route('/superadmin/dashboard', methods=['GET', 'POST'])  # Assuming superadmin has a login system
+def superadmin_dashboard():
+    # Fetch the first scheduling settings entry
+    settings = SchedulingSettings.query.first()
     
+    if not settings:
+        # Default scheduling time
+        scheduling_time = datetime.strptime("08:55:00", "%H:%M:%S").time()
+        settings = SchedulingSettings(scheduling_time=scheduling_time)
+        db.session.add(settings)
+        db.session.commit()
+
+    if request.method == 'POST':
+        new_time = request.form.get('scheduling_time')
+        if new_time:
+            try:
+                # Convert input to time object and update settings
+                new_time_obj = datetime.strptime(new_time, "%H:%M").time()
+                settings.scheduling_time = new_time_obj
+                db.session.commit()
+                flash("Scheduling time updated successfully!", "success")
+            except ValueError:
+                flash("Invalid time format. Please use HH:MM.", "danger")
+        else:
+            flash("No time provided. Please enter a valid time.", "warning")
+
+    # For both GET and POST, fetch tasks and render the dashboard
+    tasks = scheduler.get_jobs()
+    schedules = []
+
+# Get jobs from the scheduler
+    jobs = scheduler.get_jobs()
+    if not jobs:
+      print("No jobs found!")
+    else:
+       for job in jobs:
+        jobdict = {
+            "job_id": job.id,
+            "function": job.func_ref,
+            "next_run_time": job.next_run_time
+            
+        }
+        # Safely extract fields
+        try:
+            for field in job.trigger.fields:
+                jobdict[field.name] = str(field)
+        except AttributeError:
+            print(f"Job {job.id} has no trigger fields.")
+
+        schedules.append(jobdict)
+
+    for schedule in schedules:
+     print(schedule) 
+
+
+
+# Pass tasks to the template
+    return render_template('superadmin_dashboard.html', settings=settings,tasks=schedules)
+
+
+@app.route('/superadmin/kill_task/<task_id>', methods=['POST'])
+def kill_taskk(task_id):
+    
+
+    try:
+        scheduler.remove_job(task_id)
+        flash(f'Task {task_id} has been killed!', 'success')
+    except Exception as e:
+        flash(f'Error killing task {task_id}: {str(e)}', 'danger')
+
+    return redirect(url_for('superadmin_dashboard'))
+
+
 if __name__ == '__main__':
     app.run(debug=True)
